@@ -29,7 +29,8 @@
 - [x] 포트 매핑 접속(2회)
 - [x] 바인드 마운트 반영
 - [x] 볼륨 영속성
-- [x] Git 설정 + VS Code GitHub 연동
+- [x] Git 설정 + GitHub 원격 저장소 연동
+- [x] VS Code GitHub 로그인 및 저장소 연동 화면 첨부
 
 ## 3. 터미널 조작 및 권한 실습
 
@@ -669,5 +670,101 @@ e6d4722bf7f4   alpine   Exited (0)   e1-volume-2
 | 주요 용도 | 개발 중 소스코드와 설정 파일 공유 | 컨테이너와 독립적으로 유지할 애플리케이션 데이터 저장 |
 
 ## 7. Git, GitHub 및 VS Code 연동
+
+Git 사용자 정보와 기본 브랜치를 설정하고, 로컬 저장소의 `main` 브랜치가 GitHub 원격 저장소의 `origin/main`을 추적하도록 연결했다. 공개 문서에는 실제 이름과 이메일, GitHub 사용자명을 각각 `<GITHUB_DISPLAY_NAME>`, `<GITHUB_NOREPLY_EMAIL>`, `<GITHUB_USERNAME>`으로 마스킹했다.
+
+### 7.1 Git 사용자 정보와 기본 브랜치 설정
+
+사용자명과 이메일은 기존에 설정되어 있던 GitHub 표시명과 noreply 이메일을 사용했다. 기본 브랜치 설정은 비어 있어 `main`으로 설정했다. 전체 설정을 확인한 뒤 README에는 인증정보가 없는 안전한 항목만 발췌했다.
+
+```text
+$ git --version
+git version 2.40.1
+
+$ git config --global user.name
+<GITHUB_DISPLAY_NAME>
+
+$ git config --global user.email
+<GITHUB_NOREPLY_EMAIL>
+
+$ git config --global init.defaultBranch main
+
+$ git config --list
+user.name=<GITHUB_DISPLAY_NAME>
+user.email=<GITHUB_NOREPLY_EMAIL>
+init.defaultbranch=main
+core.repositoryformatversion=0
+core.bare=false
+remote.origin.url=https://github.com/<GITHUB_USERNAME>/codyssey-pre-course-e1-1.git
+remote.origin.fetch=+refs/heads/*:refs/remotes/origin/*
+```
+
+`user.name`과 `user.email`은 앞으로 만드는 커밋의 작성자 정보로 사용된다. `init.defaultBranch=main`은 새 Git 저장소를 만들 때 사용할 기본 브랜치 이름을 `main`으로 지정한다.
+
+### 7.2 GitHub 원격 저장소 연결
+
+현재 브랜치와 원격 저장소 주소를 확인한 뒤, `main` 브랜치가 `origin/main`을 추적하도록 설정했다. 아래 원격 주소는 개인정보 보호를 위해 GitHub 사용자명만 마스킹했다.
+
+```text
+$ git branch --show-current
+main
+
+$ git remote -v
+origin  https://github.com/<GITHUB_USERNAME>/codyssey-pre-course-e1-1.git (fetch)
+origin  https://github.com/<GITHUB_USERNAME>/codyssey-pre-course-e1-1.git (push)
+
+$ git fetch origin main
+From https://github.com/<GITHUB_USERNAME>/codyssey-pre-course-e1-1
+ * branch            main       -> FETCH_HEAD
+
+$ git branch --set-upstream-to=origin/main main
+branch 'main' set up to track 'origin/main'.
+
+$ git status --short --branch
+## main...origin/main
+
+$ git rev-list --left-right --count main...origin/main
+0       0
+```
+
+확인 당시 로컬 `main`과 원격 `origin/main`의 앞선 커밋과 뒤처진 커밋 수가 모두 `0`이어서 두 브랜치가 같은 커밋을 가리키고 있었다. 이번 README 작성 내용은 로컬에서만 수정했으며 별도의 커밋이나 `git push`는 수행하지 않았다.
+
+### 7.3 GitHub 로그인과 저장소 공개 상태
+
+GitHub CLI의 인증 상태와 현재 저장소 정보를 확인했다. 실제 토큰 값은 출력에서 제거했으며 README에 기록하지 않았다.
+
+```text
+$ gh auth status
+github.com
+  ✓ Logged in to github.com account <GITHUB_USERNAME> (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: <REDACTED>
+
+$ gh repo view --json nameWithOwner,visibility,url,defaultBranchRef
+{
+  "defaultBranch": "main",
+  "nameWithOwner": "<GITHUB_USERNAME>/codyssey-pre-course-e1-1",
+  "url": "https://github.com/<GITHUB_USERNAME>/codyssey-pre-course-e1-1",
+  "visibility": "PUBLIC"
+}
+```
+
+`Active account: true`와 HTTPS 프로토콜 설정으로 GitHub 인증 상태를 확인했다. 저장소 공개 범위는 `PUBLIC`, 기본 브랜치는 `main`이다.
+
+### 7.4 VS Code GitHub 연동
+
+VS Code에서 이 저장소 폴더를 열고 GitHub 계정 로그인, `main` 브랜치, Source Control의 저장소 연결 상태가 한 화면에 보이도록 확인한다. 토큰, 이메일, 인증 코드 등 민감정보가 보이지 않는 화면만 `screenshots/12-vscode-github.png`로 첨부한다.
+
+캡처에서 Source Control에 현재 수정 파일이 표시되고, 브랜치 목록에 로컬 `main`과 원격 `origin/main`이 함께 표시되는 것을 확인했다.
+
+![VS Code GitHub 저장소 및 main 브랜치 연동 결과](screenshots/12-vscode-github.png)
+
+### 7.5 Git과 GitHub의 차이
+
+| 구분 | Git | GitHub |
+|---|---|---|
+| 역할 | 로컬 컴퓨터에서 파일 변경 이력과 브랜치를 관리하는 버전 관리 도구 | Git 저장소를 원격에 보관하고 공유·협업할 수 있는 플랫폼 |
+| 이번 실습 | `main` 브랜치와 커밋 이력을 로컬에서 관리 | 원격 저장소 `origin` 연결, 공개 범위와 동기화 상태 확인 |
 
 ## 8. 트러블슈팅 및 최종 검증
