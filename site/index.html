@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codyssey E1-1 Workstation</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #f4f7fb;
+      color: #172033;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(680px, calc(100% - 48px));
+      padding: 48px;
+      border: 1px solid #dbe3ef;
+      border-radius: 20px;
+      background: #ffffff;
+      box-shadow: 0 20px 50px rgba(23, 32, 51, 0.08);
+    }
+
+    .status {
+      color: #087a55;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    h1 {
+      margin: 12px 0;
+      font-size: clamp(2.2rem, 8vw, 4rem);
+    }
+
+    p {
+      line-height: 1.7;
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 12px;
+      margin-top: 32px;
+    }
+
+    dt {
+      color: #667085;
+    }
+
+    dd {
+      margin: 0;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="status">CONTAINER ONLINE</div>
+    <h1>Codyssey E1-1</h1>
+    <p>이 페이지는 직접 작성한 Dockerfile로 만든 NGINX 컨테이너에서 실행되고 있습니다.</p>
+    <dl>
+      <dt>페이지 버전</dt>
+      <dd>1.0</dd>
+      <dt>베이스 이미지</dt>
+      <dd>nginx:alpine</dd>
+      <dt>포트 매핑</dt>
+      <dd>localhost:8080 → container:80</dd>
+    </dl>
+  </main>
+</body>
+</html>

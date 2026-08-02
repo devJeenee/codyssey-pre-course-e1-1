@@ -249,7 +249,323 @@ drwxr-xr-x  3 <USER>  staff  96 Aug  2 19:11 practice/terminal
 
 ## 4. Docker 환경 점검과 컨테이너 운영
 
+Docker Desktop 환경을 점검하고, 이미지 다운로드부터 컨테이너 실행·조회·로그·리소스 확인·중지·재시작까지 직접 수행했다. 출력이 긴 `docker info`, `docker ps -a`, 컨테이너 내부 목록은 검증에 필요한 핵심 부분만 기록했으며, 기존 개인 Docker 객체의 행은 제외하고 과제용 `e1-` 컨테이너 결과를 발췌했다.
+
+### 4.1 Docker 설치 및 daemon 점검
+
+`docker --version`으로 Docker CLI 버전을 확인하고, `docker version`과 `docker info`로 클라이언트가 Docker daemon에 정상적으로 연결되는지 확인했다.
+
+```text
+$ docker --version
+Docker version 27.4.0, build bde2b89
+
+$ docker version
+Client:
+ Version:    27.4.0
+ OS/Arch:    darwin/arm64
+ Context:    desktop-linux
+
+Server: Docker Desktop 4.37.2
+ Engine:
+  Version:   27.4.0
+  OS/Arch:   linux/arm64
+
+$ docker info
+Server Version: 27.4.0
+Storage Driver: overlay2
+Operating System: Docker Desktop
+OSType: linux
+Architecture: aarch64
+CPUs: 10
+Total Memory: 9.704GiB
+```
+
+클라이언트는 macOS의 `darwin/arm64`에서 실행되고, Docker Desktop의 Linux VM 안에서는 Docker 서버가 `linux/arm64`로 실행된다. `docker info`에서 서버 정보가 출력되었으므로 Docker daemon 연결도 정상이다.
+
+### 4.2 `hello-world` 이미지와 컨테이너
+
+#### 1) 이미지 다운로드 및 실행
+
+```text
+$ docker pull hello-world
+Using default tag: latest
+Status: Downloaded newer image for hello-world:latest
+docker.io/library/hello-world:latest
+
+$ docker run --name e1-hello hello-world
+
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+```
+
+`Hello from Docker!`가 출력되어 이미지 다운로드, 컨테이너 생성, 컨테이너 실행, 터미널 출력 전달 과정이 정상임을 확인했다.
+
+#### 2) 이미지와 컨테이너 상태 확인
+
+```text
+$ docker images hello-world
+REPOSITORY    TAG       IMAGE ID       CREATED        SIZE
+hello-world   latest    eb84fdc6f2a3   4 months ago   5.2kB
+
+$ docker ps
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS   PORTS   NAMES
+
+$ docker ps -a
+CONTAINER ID   IMAGE         COMMAND    STATUS       NAMES
+92ac7c960581   hello-world   "/hello"   Exited (0)   e1-hello
+```
+
+`hello-world`는 메시지를 출력한 뒤 주 프로세스가 끝나는 컨테이너다. 따라서 실행 중인 컨테이너만 보여주는 `docker ps`에는 없지만, 종료된 컨테이너까지 보여주는 `docker ps -a`에서는 종료 코드 `0`으로 확인된다.
+
+#### 3) 컨테이너 로그 확인
+
+```text
+$ docker logs e1-hello
+
+Hello from Docker!
+This message shows that your installation appears to be working correctly.
+```
+
+종료된 컨테이너도 삭제 전이라면 `docker logs`로 실행 당시의 표준 출력을 다시 확인할 수 있다.
+
+### 4.3 실행 중인 컨테이너와 리소스 확인
+
+계속 실행되는 NGINX 컨테이너를 백그라운드로 시작한 뒤 `docker ps`와 `docker stats --no-stream`으로 상태와 리소스 사용량을 확인했다.
+
+```text
+$ docker run -d --name e1-stats nginx:alpine
+33b967ca2a9828dffb2959f7a5eeb0a35a2d6be05871e5240975d2bd15596642
+
+$ docker ps
+CONTAINER ID   IMAGE          STATUS                  PORTS    NAMES
+33b967ca2a98   nginx:alpine   Up Less than a second   80/tcp   e1-stats
+
+$ docker stats --no-stream e1-stats
+CONTAINER ID   NAME       CPU %   MEM USAGE / LIMIT     MEM %   NET I/O
+33b967ca2a98   e1-stats   0.00%   14.96MiB / 9.704GiB   0.15%   606B / 0B
+```
+
+컨테이너를 중지한 뒤 종료된 상태가 `docker ps -a`에 표시되는지 확인했다.
+
+```text
+$ docker stop e1-stats
+e1-stats
+
+$ docker ps -a
+CONTAINER ID   IMAGE          STATUS       NAMES
+33b967ca2a98   nginx:alpine   Exited (0)   e1-stats
+```
+
+### 4.4 Ubuntu 컨테이너와 생명주기
+
+#### 1) Ubuntu 이미지 및 컨테이너 실행
+
+```text
+$ docker pull ubuntu:24.04
+24.04: Pulling from library/ubuntu
+Status: Downloaded newer image for ubuntu:24.04
+docker.io/library/ubuntu:24.04
+
+$ docker run -dit --name e1-ubuntu ubuntu:24.04 bash
+f99c5fc546245d336d8a9e6fe97653ec8ef4a71eebdc49a819476e2311d1fb2b
+
+$ docker images ubuntu:24.04
+REPOSITORY   TAG       IMAGE ID       CREATED       SIZE
+ubuntu       24.04     ea17ec341c42   5 weeks ago   101MB
+```
+
+이미지는 컨테이너를 만들기 위한 변경되지 않는 실행 템플릿이고, 컨테이너는 해당 이미지에서 생성되어 실행되는 인스턴스다.
+
+#### 2) 컨테이너 내부 명령과 리소스 확인
+
+```text
+$ docker exec e1-ubuntu bash -lc 'pwd; ls -la; echo "hello from ubuntu"'
+/
+total 56
+-rwxr-xr-x   1 root root    0 .dockerenv
+lrwxrwxrwx   1 root root    7 bin -> usr/bin
+drwxr-xr-x   1 root root 4096 etc
+drwxr-xr-x   3 root root 4096 home
+drwxr-xr-x  11 root root 4096 usr
+drwxr-xr-x  11 root root 4096 var
+hello from ubuntu
+
+$ docker stats --no-stream e1-ubuntu
+CONTAINER ID   NAME        CPU %   MEM USAGE / LIMIT    MEM %   PIDS
+f99c5fc54624   e1-ubuntu   0.00%   1.07MiB / 9.704GiB   0.01%   1
+```
+
+컨테이너 내부의 현재 위치가 루트 디렉터리(`/`)이고, Ubuntu 파일 시스템과 `echo` 출력이 정상임을 확인했다.
+
+#### 3) 중지 및 재시작
+
+```text
+$ docker stop e1-ubuntu
+e1-ubuntu
+
+$ docker ps -a
+CONTAINER ID   IMAGE          COMMAND   STATUS        NAMES
+f99c5fc54624   ubuntu:24.04   "bash"    Exited (137)  e1-ubuntu
+
+$ docker start e1-ubuntu
+e1-ubuntu
+
+$ docker ps
+CONTAINER ID   IMAGE          COMMAND   STATUS   NAMES
+f99c5fc54624   ubuntu:24.04   "bash"    Up       e1-ubuntu
+```
+
+중지한 컨테이너는 `docker ps -a`에 남아 있으며, `docker start`로 같은 컨테이너를 다시 실행할 수 있다. 이 컨테이너의 주 프로세스인 `bash`가 종료 신호 후 종료되어 `137`이 표시되었지만, 컨테이너 자체는 정상적으로 다시 시작되었다.
+
+### 4.5 `docker exec`와 `docker attach`
+
+#### 1) 대화형 `exec`
+
+```text
+$ docker exec -it e1-ubuntu bash
+root@<CONTAINER_ID>:/# echo "interactive shell"
+interactive shell
+root@<CONTAINER_ID>:/# pwd
+/
+root@<CONTAINER_ID>:/# ls
+bin  boot  dev  etc  home  lib  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+root@<CONTAINER_ID>:/# exit
+exit
+
+$ docker ps
+CONTAINER ID   IMAGE          COMMAND   STATUS   NAMES
+f99c5fc54624   ubuntu:24.04   "bash"    Up       e1-ubuntu
+```
+
+`docker exec`는 실행 중인 컨테이너 안에 새로운 프로세스를 만든다. 따라서 `exec`로 실행한 셸에서 `exit`해도 컨테이너의 주 프로세스는 종료되지 않아 컨테이너가 계속 실행된다.
+
+#### 2) 주 프로세스에 `attach` 후 분리
+
+```text
+$ docker attach e1-ubuntu
+root@<CONTAINER_ID>:/# echo "attached to main process"
+attached to main process
+root@<CONTAINER_ID>:/# Ctrl-p Ctrl-q
+read escape sequence
+
+$ docker ps
+CONTAINER ID   IMAGE          COMMAND   STATUS   NAMES
+f99c5fc54624   ubuntu:24.04   "bash"    Up       e1-ubuntu
+
+$ docker exec e1-ubuntu echo "exec creates another process"
+exec creates another process
+
+$ docker ps
+CONTAINER ID   IMAGE          COMMAND   STATUS   NAMES
+f99c5fc54624   ubuntu:24.04   "bash"    Up       e1-ubuntu
+```
+
+`docker attach`는 컨테이너의 주 프로세스에 직접 연결한다. 여기서 `exit`하면 주 프로세스가 종료되어 컨테이너도 멈출 수 있으므로, `Ctrl-p` 다음 `Ctrl-q`를 눌러 컨테이너를 종료하지 않고 분리했다. 분리 후에도 컨테이너가 실행 중이고 `docker exec`로 별도 프로세스를 실행할 수 있음을 확인했다.
+
 ## 5. Dockerfile, 이미지 빌드 및 포트 매핑
+
+`nginx:alpine`을 베이스 이미지로 선택하고, 직접 만든 정적 웹페이지를 포함한 커스텀 이미지를 제작했다. NGINX는 정적 파일을 제공하는 웹 서버가 기본 구성되어 있고 Alpine 기반 이미지는 비교적 가벼워 이번 실습에 적합하다.
+
+### 5.1 웹페이지 소스코드
+
+웹페이지 소스는 [`site/index.html`](site/index.html)에 작성했다. 미션 이름, Docker 컨테이너에서 실행 중이라는 설명, 페이지 버전과 포트 매핑 정보를 표시하도록 구성했다.
+
+```html
+<div class="status">CONTAINER ONLINE</div>
+<h1>Codyssey E1-1</h1>
+<p>이 페이지는 직접 작성한 Dockerfile로 만든 NGINX 컨테이너에서 실행되고 있습니다.</p>
+<dl>
+  <dt>페이지 버전</dt>
+  <dd>1.0</dd>
+  <dt>베이스 이미지</dt>
+  <dd>nginx:alpine</dd>
+  <dt>포트 매핑</dt>
+  <dd>localhost:8080 → container:80</dd>
+</dl>
+```
+
+### 5.2 Dockerfile
+
+```dockerfile
+FROM nginx:alpine
+
+COPY site/ /usr/share/nginx/html/
+
+EXPOSE 80
+```
+
+| 커스텀 포인트 | 실제 적용 내용 | 적용 목적 |
+|---|---|---|
+| 베이스 이미지 | `FROM nginx:alpine` | 기존 NGINX 웹 서버를 이용해 정적 페이지를 실행한다. |
+| 정적 콘텐츠 | `COPY site/ /usr/share/nginx/html/` | 기본 NGINX 페이지를 직접 만든 Codyssey 페이지로 교체한다. |
+| 컨테이너 포트 | `EXPOSE 80` | NGINX가 사용하는 컨테이너 내부 포트가 80임을 문서화한다. |
+
+`EXPOSE 80`은 이미지가 사용하는 포트를 알려주는 설정이며, 호스트에서 실제로 접속할 수 있게 만드는 포트 매핑은 컨테이너 실행 시 `-p` 옵션으로 지정한다.
+
+### 5.3 커스텀 이미지 빌드
+
+```text
+$ docker build -t codyssey-e1-web:1.0 .
+#1 [internal] load build definition from Dockerfile
+#2 [internal] load metadata for docker.io/library/nginx:alpine
+#5 [1/2] FROM docker.io/library/nginx:alpine
+#6 [2/2] COPY site/ /usr/share/nginx/html/
+#7 exporting to image
+#7 naming to docker.io/library/codyssey-e1-web:1.0 done
+#7 DONE 0.0s
+
+$ docker images codyssey-e1-web
+REPOSITORY        TAG   IMAGE ID       CREATED                  SIZE
+codyssey-e1-web   1.0   8251443efc2c   Less than a second ago   61.8MB
+```
+
+Dockerfile의 `FROM`과 `COPY` 단계가 완료되었고, `codyssey-e1-web:1.0` 이미지가 생성된 것을 확인했다.
+
+### 5.4 컨테이너 실행 및 포트 매핑
+
+호스트의 8080 포트를 컨테이너의 80 포트에 연결해 웹 서버 컨테이너를 실행했다.
+
+```text
+$ docker run -d --name e1-web -p 8080:80 codyssey-e1-web:1.0
+a039982cb9ebe5e4d660047e5c4df08ff75aa0a8cee2293a7301032b7f2a73a0
+
+$ docker ps
+CONTAINER ID   IMAGE                 STATUS                  PORTS                  NAMES
+a039982cb9eb   codyssey-e1-web:1.0   Up Less than a second   0.0.0.0:8080->80/tcp   e1-web
+```
+
+`-p 8080:80`은 호스트의 `localhost:8080`으로 들어온 요청을 컨테이너 내부 NGINX의 80 포트로 전달한다. 컨테이너 네트워크는 호스트와 분리되어 있으므로 외부에서 접속하려면 이 포트 연결이 필요하다.
+
+### 5.5 HTTP 응답 및 접근 로그 검증
+
+```text
+$ curl -i http://localhost:8080
+HTTP/1.1 200 OK
+Server: nginx/1.31.3
+Content-Type: text/html
+Content-Length: 1539
+
+<!doctype html>
+<html lang="ko">
+...
+<h1>Codyssey E1-1</h1>
+<p>이 페이지는 직접 작성한 Dockerfile로 만든 NGINX 컨테이너에서 실행되고 있습니다.</p>
+...
+</html>
+
+$ docker logs e1-web
+2026/08/02 12:03:09 [notice] 1#1: nginx/1.31.3
+2026/08/02 12:03:09 [notice] 1#1: start worker processes
+172.17.0.1 - - [02/Aug/2026:12:03:09 +0000] "GET / HTTP/1.1" 200 1539 "-" "curl/8.7.1" "-"
+```
+
+`curl`에서 HTTP 상태 코드 `200 OK`와 직접 작성한 HTML이 반환되었다. `docker logs e1-web`에서도 `GET / HTTP/1.1` 요청이 상태 코드 `200`으로 처리된 것을 확인했다.
+
+### 5.6 브라우저 접속 증거
+
+브라우저 주소창의 `localhost:8080`과 직접 만든 웹페이지가 함께 표시되는 것을 확인했다.
+
+![localhost 8080 포트 매핑 접속 결과](screenshots/07-web-browser.png)
 
 ## 6. 바인드 마운트와 볼륨 영속성
 
