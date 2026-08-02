@@ -569,6 +569,105 @@ $ docker logs e1-web
 
 ## 6. 바인드 마운트와 볼륨 영속성
 
+바인드 마운트로 호스트 파일의 변경이 이미지 재빌드 없이 컨테이너에 반영되는지 확인하고, Docker 볼륨으로 컨테이너를 삭제한 뒤에도 데이터가 유지되는지 검증했다.
+
+### 6.1 바인드 마운트 변경 반영
+
+호스트의 `site` 디렉터리를 NGINX의 정적 파일 경로인 `/usr/share/nginx/html`에 연결하고, 호스트의 8081 포트를 컨테이너의 80 포트에 매핑했다.
+
+```text
+$ docker run -d --name e1-bind -p 8081:80 --mount type=bind,source="$(pwd)/site",target=/usr/share/nginx/html nginx:alpine
+86111adfa4d9ca7b1a1f6a3c4d92cceef200994ef313d7960f66bb5667b3915e
+
+$ docker ps
+CONTAINER ID   IMAGE                 STATUS   PORTS                  NAMES
+86111adfa4d9   nginx:alpine          Up       0.0.0.0:8081->80/tcp   e1-bind
+a039982cb9eb   codyssey-e1-web:1.0   Up       0.0.0.0:8080->80/tcp   e1-web
+
+$ curl -s http://localhost:8081
+<!doctype html>
+<html lang="ko">
+...
+<div class="status">CONTAINER ONLINE</div>
+...
+<dd>1.0</dd>
+...
+<dd>localhost:8080 → container:80</dd>
+...
+</html>
+```
+
+컨테이너가 실행 중인 상태에서 호스트의 `site/index.html`을 터미널 명령으로 수정했다. macOS의 `sed`는 제자리 수정을 위해 `-i ''`를 사용하며, Linux에서는 `-i`만 사용하면 된다.
+
+```text
+$ sed -i '' \
+  -e 's/CONTAINER ONLINE/BIND MOUNT UPDATED/' \
+  -e 's/이 페이지는 직접 작성한 Dockerfile로 만든 NGINX 컨테이너에서 실행되고 있습니다\./호스트의 파일 변경이 바인드 마운트를 통해 NGINX 컨테이너에 바로 반영되었습니다./' \
+  -e 's/<dd>1.0<\/dd>/<dd>1.1<\/dd>/' \
+  -e 's/localhost:8080/localhost:8081/' \
+  site/index.html
+
+$ grep -nE 'BIND MOUNT UPDATED|<dd>1.1|localhost:8081' site/index.html
+61:    <div class="status">BIND MOUNT UPDATED</div>
+66:      <dd>1.1</dd>
+70:      <dd>localhost:8081 → container:80</dd>
+
+$ curl -s http://localhost:8081 | grep -E 'BIND MOUNT UPDATED|<dd>1.1|localhost:8081'
+    <div class="status">BIND MOUNT UPDATED</div>
+      <dd>1.1</dd>
+      <dd>localhost:8081 → container:80</dd>
+```
+
+두 번의 HTTP 확인 사이에 `docker build`나 컨테이너 재시작을 수행하지 않았다. 따라서 버전이 `1.0`에서 `1.1`로 바뀐 결과는 호스트 파일 변경이 바인드 마운트를 통해 실행 중인 컨테이너에 즉시 반영된 증거다.
+
+### 6.2 Docker 볼륨 영속성
+
+Docker 볼륨을 생성한 뒤 첫 번째 컨테이너에서 파일을 저장하고, 해당 컨테이너를 삭제했다.
+
+```text
+$ docker volume create e1-data
+e1-data
+
+$ docker volume ls
+DRIVER   VOLUME NAME
+local    e1-data
+
+$ docker run --name e1-volume-1 --mount source=e1-data,target=/data alpine sh -c 'echo "persistent-data-e1" > /data/result.txt && cat /data/result.txt'
+persistent-data-e1
+
+$ docker ps -a
+CONTAINER ID   IMAGE    STATUS                     NAMES
+4094aace4aa0   alpine   Exited (0)                 e1-volume-1
+
+$ docker rm e1-volume-1
+e1-volume-1
+
+$ docker volume ls
+DRIVER   VOLUME NAME
+local    e1-data
+```
+
+첫 번째 컨테이너를 삭제한 뒤에도 `e1-data` 볼륨이 남아 있음을 확인했다. 이어서 같은 볼륨을 두 번째 컨테이너에 연결해 기존 파일을 읽었다.
+
+```text
+$ docker run --name e1-volume-2 --mount source=e1-data,target=/data alpine cat /data/result.txt
+persistent-data-e1
+
+$ docker ps -a
+CONTAINER ID   IMAGE    STATUS       NAMES
+e6d4722bf7f4   alpine   Exited (0)   e1-volume-2
+```
+
+첫 번째 컨테이너에서 기록한 `persistent-data-e1`이 두 번째 컨테이너에서도 동일하게 출력되었다. 컨테이너를 삭제해도 Docker 볼륨의 데이터는 독립적으로 유지되며, 다른 컨테이너에 다시 연결해 사용할 수 있음을 확인했다. 위 `docker volume ls`와 `docker ps -a` 출력에서는 과제와 관계없는 기존 Docker 객체의 행을 제외했다.
+
+### 6.3 바인드 마운트와 볼륨 비교
+
+| 구분 | 바인드 마운트 | Docker 볼륨 |
+|---|---|---|
+| 저장 위치 관리 | 호스트의 지정 경로를 직접 사용 | Docker가 저장 위치를 관리 |
+| 이번 검증 | 호스트 파일 변경이 실행 중인 웹페이지에 즉시 반영됨 | 컨테이너 삭제 후 새 컨테이너에서도 데이터가 유지됨 |
+| 주요 용도 | 개발 중 소스코드와 설정 파일 공유 | 컨테이너와 독립적으로 유지할 애플리케이션 데이터 저장 |
+
 ## 7. Git, GitHub 및 VS Code 연동
 
 ## 8. 트러블슈팅 및 최종 검증
