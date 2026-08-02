@@ -31,6 +31,8 @@
 - [x] 볼륨 영속성
 - [x] Git 설정 + GitHub 원격 저장소 연동
 - [x] VS Code GitHub 로그인 및 저장소 연동 화면 첨부
+- [ ] 트러블슈팅 2건 이상 (현재 1건 작성)
+- [x] 최종 재현 검증
 
 ## 3. 터미널 조작 및 권한 실습
 
@@ -727,7 +729,7 @@ $ git rev-list --left-right --count main...origin/main
 0       0
 ```
 
-확인 당시 로컬 `main`과 원격 `origin/main`의 앞선 커밋과 뒤처진 커밋 수가 모두 `0`이어서 두 브랜치가 같은 커밋을 가리키고 있었다. 이번 README 작성 내용은 로컬에서만 수정했으며 별도의 커밋이나 `git push`는 수행하지 않았다.
+확인 당시 로컬 `main`과 원격 `origin/main`의 앞선 커밋과 뒤처진 커밋 수가 모두 `0`이어서 두 브랜치가 같은 커밋을 가리키고 있었다. 이후 로컬에서 작성한 내용의 현재 상태는 8장의 최종 검증에 별도로 기록했다.
 
 ### 7.3 GitHub 로그인과 저장소 공개 상태
 
@@ -768,3 +770,111 @@ VS Code에서 이 저장소 폴더를 열고 GitHub 계정 로그인, `main` 브
 | 이번 실습 | `main` 브랜치와 커밋 이력을 로컬에서 관리 | 원격 저장소 `origin` 연결, 공개 범위와 동기화 상태 확인 |
 
 ## 8. 트러블슈팅 및 최종 검증
+
+실습 중 실제로 발생한 문제 한 건을 문제, 원인 가설, 확인, 해결 대안, 재검증 순서로 정리했다. 이어서 현재 저장소의 Dockerfile을 다시 빌드하고 별도 컨테이너로 실행해 재현성과 HTTP 응답을 최종 확인했다.
+
+### 8.1 트러블슈팅: Ubuntu 컨테이너가 종료 코드 137로 정지함
+
+#### 문제
+
+`docker stop`으로 Ubuntu 컨테이너를 중지한 뒤 상태를 확인했을 때 예상과 달리 종료 코드 `137`이 표시되었다.
+
+```text
+$ docker stop e1-ubuntu
+e1-ubuntu
+
+$ docker ps -a
+CONTAINER ID   IMAGE          COMMAND   STATUS         NAMES
+f99c5fc54624   ubuntu:24.04   "bash"    Exited (137)   e1-ubuntu
+```
+
+#### 원인 가설 및 확인
+
+종료 코드 `137`은 `128 + 9`로, 프로세스가 `SIGKILL(9)` 신호로 종료되었음을 의미한다. 컨테이너의 주 프로세스인 `bash`가 Docker의 정상 종료 신호에 종료되지 않아 최종적으로 강제 종료된 것으로 판단했다. 컨테이너 상태의 종료 코드를 직접 확인했다.
+
+```text
+$ docker inspect e1-ubuntu --format 'status={{.State.Status}} exitCode={{.State.ExitCode}}'
+status=exited exitCode=137
+```
+
+#### 해결 대안 및 재검증
+
+종료된 컨테이너 자체가 손상된 것은 아니므로 `docker start`로 같은 컨테이너를 다시 실행하고, `docker exec`로 내부 명령이 정상적으로 수행되는지 확인했다. `attach` 사용 중 컨테이너를 계속 유지해야 할 때는 `exit` 대신 `Ctrl-p`, `Ctrl-q`로 분리한다.
+
+```text
+$ docker start e1-ubuntu
+e1-ubuntu
+
+$ docker exec e1-ubuntu echo "container restarted successfully"
+container restarted successfully
+
+$ docker ps
+CONTAINER ID   IMAGE          COMMAND   STATUS   NAMES
+f99c5fc54624   ubuntu:24.04   "bash"    Up       e1-ubuntu
+```
+
+재시작 후 컨테이너가 `Up` 상태이고 내부 명령도 정상 실행되어 다시 사용할 수 있음을 확인했다.
+
+### 8.2 Dockerfile 최종 재현 검증
+
+현재 저장소의 Dockerfile로 검증용 이미지를 새로 빌드하고, 기존 실습 컨테이너와 겹치지 않는 호스트 18080 포트에서 실행했다.
+
+```text
+$ docker build -t codyssey-e1-web:verify .
+#1 [internal] load build definition from Dockerfile
+#5 [1/2] FROM docker.io/library/nginx:alpine
+#6 [2/2] COPY site/ /usr/share/nginx/html/
+#7 naming to docker.io/library/codyssey-e1-web:verify done
+#7 DONE 0.0s
+
+$ docker run -d --name e1-verify -p 18080:80 codyssey-e1-web:verify
+011229415dcb024ec99070dd9d5834be33a7baf5cfdb95b50a12f15a63b796e8
+
+$ docker ps
+CONTAINER ID   IMAGE                    STATUS   PORTS                    NAMES
+011229415dcb   codyssey-e1-web:verify   Up       0.0.0.0:18080->80/tcp   e1-verify
+
+$ curl -i http://localhost:18080
+HTTP/1.1 200 OK
+Server: nginx/1.31.3
+Content-Type: text/html
+Content-Length: 1546
+
+<!doctype html>
+<html lang="ko">
+...
+<div class="status">BIND MOUNT UPDATED</div>
+<h1>Codyssey E1-1</h1>
+...
+<dd>1.1</dd>
+...
+</html>
+
+$ docker logs e1-verify
+172.17.0.1 - - [02/Aug/2026:12:33:23 +0000] "GET / HTTP/1.1" 200 1546 "-" "curl/8.7.1" "-"
+
+$ docker rm -f e1-verify
+e1-verify
+```
+
+이미지 빌드와 컨테이너 실행이 성공했고, 새 컨테이너에서 HTTP 상태 코드 `200 OK`와 현재 웹페이지 버전 `1.1`이 반환되었다. 접근 로그에도 `GET / HTTP/1.1` 요청이 `200`으로 기록되었다. 검증이 끝난 뒤 검증용 컨테이너만 삭제했다.
+
+### 8.3 수행 결과와 증거 위치
+
+| 수행 항목 | 검증 방법 | 결과 및 증거 위치 |
+|---|---|---|
+| 실행 환경 | OS, Shell, Docker, Git 버전 확인 | [1. 프로젝트 개요 및 실행 환경](#1-프로젝트-개요-및-실행-환경) |
+| 터미널 조작과 권한 | `pwd`, `ls`, 파일 조작, `chmod` 전·후 확인 | [3. 터미널 조작 및 권한 실습](#3-터미널-조작-및-권한-실습) |
+| Docker 운영 | `docker info`, `images`, `ps`, `logs`, `stats` 확인 | [4. Docker 환경 점검과 컨테이너 운영](#4-docker-환경-점검과-컨테이너-운영) |
+| Dockerfile과 포트 매핑 | 이미지 빌드, 컨테이너 실행, `curl`, 브라우저 접속 | [5. Dockerfile, 이미지 빌드 및 포트 매핑](#5-dockerfile-이미지-빌드-및-포트-매핑), [브라우저 캡처](screenshots/07-web-browser.png) |
+| 바인드 마운트와 볼륨 | 호스트 변경 전·후 및 컨테이너 삭제 전·후 비교 | [6. 바인드 마운트와 볼륨 영속성](#6-바인드-마운트와-볼륨-영속성) |
+| Git, GitHub, VS Code | Git 설정, 원격 저장소, 인증·공개 상태 확인 | [7. Git, GitHub 및 VS Code 연동](#7-git-github-및-vs-code-연동), [VS Code 캡처](screenshots/12-vscode-github.png) |
+| 최종 재현 | 검증 이미지 재빌드, 18080 포트 실행, HTTP 200 확인 | [8.2 Dockerfile 최종 재현 검증](#82-dockerfile-최종-재현-검증) |
+
+### 8.4 최종 보안 및 문서 검사
+
+- README의 사용자명, 이메일, 개인 경로는 자리표시자로 마스킹했다.
+- GitHub 인증 토큰은 `<REDACTED>`로 표시하고 실제 값을 기록하지 않았다.
+- 브라우저와 VS Code 증거 이미지가 README의 상대 경로로 연결되어 있다.
+- 별도의 로그 파일을 만들지 않고 핵심 명령과 결과를 README 코드블록에 기록했다.
+- Docker 검증용 컨테이너는 삭제했으며 기존 과제 컨테이너와 볼륨은 실습 결과 확인을 위해 유지했다.
