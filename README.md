@@ -377,6 +377,10 @@ REPOSITORY   TAG       IMAGE ID       CREATED       SIZE
 ubuntu       24.04     ea17ec341c42   5 weeks ago   101MB
 ```
 
+Ubuntu의 `bash`를 백그라운드에서 계속 실행하고, 이후 `docker exec`와 `docker attach`로 컨테이너 내부에 접속하는 실습을 진행하기 위해 `-dit` 옵션을 사용했다.
+
+- Ubuntu Bash를 백그라운드에 유지: `-dit`
+
 이미지는 컨테이너를 만들기 위한 변경되지 않는 실행 템플릿이고, 컨테이너는 해당 이미지에서 생성되어 실행되는 인스턴스다.
 
 #### 2) 컨테이너 내부 명령과 리소스 확인
@@ -464,6 +468,17 @@ f99c5fc54624   ubuntu:24.04   "bash"    Up       e1-ubuntu
 ```
 
 `docker attach`는 컨테이너의 주 프로세스에 직접 연결한다. 여기서 `exit`하면 주 프로세스가 종료되어 컨테이너도 멈출 수 있으므로, `Ctrl-p` 다음 `Ctrl-q`를 눌러 컨테이너를 종료하지 않고 분리했다. 분리 후에도 컨테이너가 실행 중이고 `docker exec`로 별도 프로세스를 실행할 수 있음을 확인했다.
+
+#### 3) 명령 선택 기준
+
+| 필요한 작업 | 적합한 명령 |
+|---|---|
+| 컨테이너 내부 명령 실행 또는 파일 확인 | `docker exec` |
+| 점검용 Bash 또는 sh 실행 | `docker exec -it` |
+| 기존 주 프로세스에 직접 연결 | `docker attach` |
+| 로그 확인 또는 실시간 확인 | `docker logs`, `docker logs -f` |
+
+특별히 기존 주 프로세스에 직접 연결해야 하는 경우가 아니라면, 컨테이너 내부 점검에는 주로 `docker exec`를 사용한다.
 
 ## 5. Dockerfile, 이미지 빌드 및 포트 매핑
 
@@ -596,35 +611,24 @@ $ curl -s http://localhost:8081
 ...
 <div class="status">CONTAINER ONLINE</div>
 ...
-<dd>1.0</dd>
+</html>
+```
+
+컨테이너가 실행 중인 상태에서 호스트의 `site/index.html`에 있는 상태 문구 하나만 수정했다. `-i ''`는 macOS에서 파일 내용을 바로 수정할 때 사용하는 `sed` 옵션이다.
+
+```text
+$ sed -i '' 's/CONTAINER ONLINE/BIND MOUNT UPDATED/' site/index.html
+
+$ curl -s http://localhost:8081
+<!doctype html>
+<html lang="ko">
 ...
-<dd>localhost:8080 → container:80</dd>
+<div class="status">BIND MOUNT UPDATED</div>
 ...
 </html>
 ```
 
-컨테이너가 실행 중인 상태에서 호스트의 `site/index.html`을 터미널 명령으로 수정했다. macOS의 `sed`는 제자리 수정을 위해 `-i ''`를 사용하며, Linux에서는 `-i`만 사용하면 된다.
-
-```text
-$ sed -i '' \
-  -e 's/CONTAINER ONLINE/BIND MOUNT UPDATED/' \
-  -e 's/이 페이지는 직접 작성한 Dockerfile로 만든 NGINX 컨테이너에서 실행되고 있습니다\./호스트의 파일 변경이 바인드 마운트를 통해 NGINX 컨테이너에 바로 반영되었습니다./' \
-  -e 's/<dd>1.0<\/dd>/<dd>1.1<\/dd>/' \
-  -e 's/localhost:8080/localhost:8081/' \
-  site/index.html
-
-$ grep -nE 'BIND MOUNT UPDATED|<dd>1.1|localhost:8081' site/index.html
-61:    <div class="status">BIND MOUNT UPDATED</div>
-66:      <dd>1.1</dd>
-70:      <dd>localhost:8081 → container:80</dd>
-
-$ curl -s http://localhost:8081 | grep -E 'BIND MOUNT UPDATED|<dd>1.1|localhost:8081'
-    <div class="status">BIND MOUNT UPDATED</div>
-      <dd>1.1</dd>
-      <dd>localhost:8081 → container:80</dd>
-```
-
-두 번의 HTTP 확인 사이에 `docker build`나 컨테이너 재시작을 수행하지 않았다. 따라서 버전이 `1.0`에서 `1.1`로 바뀐 결과는 호스트 파일 변경이 바인드 마운트를 통해 실행 중인 컨테이너에 즉시 반영된 증거다.
+두 번의 HTTP 확인 사이에 이미지 재빌드나 컨테이너 재시작을 수행하지 않았다. 응답 문구가 `CONTAINER ONLINE`에서 `BIND MOUNT UPDATED`로 바뀌었으므로, 호스트 파일 변경이 바인드 마운트를 통해 실행 중인 컨테이너에 즉시 반영되었음을 확인했다.
 
 ### 6.2 Docker 볼륨 영속성
 
@@ -727,12 +731,9 @@ branch 'main' set up to track 'origin/main'.
 
 $ git status --short --branch
 ## main...origin/main
-
-$ git rev-list --left-right --count main...origin/main
-0       0
 ```
 
-확인 당시 로컬 `main`과 원격 `origin/main`의 앞선 커밋과 뒤처진 커밋 수가 모두 `0`이어서 두 브랜치가 같은 커밋을 가리키고 있었다. 이후 로컬에서 작성한 내용의 현재 상태는 8장의 최종 검증에 별도로 기록했다.
+`git status` 결과에서 로컬 `main`이 원격 `origin/main`을 추적하고 있으며, 앞섬이나 뒤처짐 표시가 없는 것을 확인했다. 이후 로컬에서 작성한 내용의 현재 상태는 8장의 최종 검증에 별도로 기록했다.
 
 ### 7.3 GitHub 로그인과 저장소 공개 상태
 
@@ -793,16 +794,22 @@ f99c5fc54624   ubuntu:24.04   "bash"    Exited (137)   e1-ubuntu
 
 #### 원인 가설 및 확인
 
-종료 코드 `137`은 `128 + 9`로, 프로세스가 `SIGKILL(9)` 신호로 종료되었음을 의미한다. 컨테이너의 주 프로세스인 `bash`가 Docker의 정상 종료 신호에 종료되지 않아 최종적으로 강제 종료된 것으로 판단했다. 컨테이너 상태의 종료 코드를 직접 확인했다.
+**원인 가설:** 이 컨테이너는 `-it` 옵션으로 입력과 가상 터미널이 연결된 대화형 Bash를 주 프로세스로 실행했다. 대화형 Bash는 실수로 종료되는 것을 막기 위해 Docker가 처음 보내는 일반 종료 요청을 기본적으로 무시한다. 따라서 Bash가 계속 실행되었고, Docker가 기본 대기 시간 10초 후 컨테이너를 강제로 중지하면서 종료 코드 `137`이 표시된 것으로 예상했다.
+
+참고로 마지막의 `bash`를 생략해도 `ubuntu:24.04` 이미지의 기본 실행 명령은 `/bin/bash`이므로 주 프로세스는 Bash가 된다. 이번 명령에서는 실행 목적을 명확하게 보여주기 위해 `bash`를 직접 작성했다.
+
+**확인:** 컨테이너의 상태와 종료 코드를 조회했다.
 
 ```text
-$ docker inspect e1-ubuntu --format 'status={{.State.Status}} exitCode={{.State.ExitCode}}'
-status=exited exitCode=137
+$ docker inspect e1-ubuntu --format 'main={{.Path}} status={{.State.Status}} exitCode={{.State.ExitCode}}'
+main=bash status=exited exitCode=137
 ```
+
+조회 결과 주 프로세스는 Bash였고, 컨테이너에는 강제 종료 시 나타날 수 있는 종료 코드 `137`이 기록되어 있었다. 따라서 대화형 Bash가 일반 종료 요청을 무시해 Docker가 강제로 중지한 것으로 판단했다.
 
 #### 해결 대안 및 재검증
 
-종료된 컨테이너 자체가 손상된 것은 아니므로 `docker start`로 같은 컨테이너를 다시 실행하고, `docker exec`로 내부 명령이 정상적으로 수행되는지 확인했다. `attach` 사용 중 컨테이너를 계속 유지해야 할 때는 `exit` 대신 `Ctrl-p`, `Ctrl-q`로 분리한다.
+컨테이너가 손상된 것은 아니므로 `docker start`로 같은 컨테이너를 다시 실행하고, `docker exec`로 내부 명령이 정상적으로 수행되는지 확인했다.
 
 ```text
 $ docker start e1-ubuntu
